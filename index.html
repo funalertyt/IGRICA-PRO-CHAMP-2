@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="bs">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Flappy XXX banka</title>
+  <style>
+    html,body{height:100%;margin:0;overflow:hidden;background:linear-gradient(#bfe9ff, #87ceeb);font-family:Inter,system-ui,Arial}
+    canvas{display:block;margin:0 auto;background:linear-gradient(#bfe9ff, #87ceeb);touch-action:none;}
+    .info{position:fixed;bottom:10px;left:0;right:0;text-align:center;font-size:14px;color:#024;padding:4px;}
+    .leaderboard {
+      position: fixed; top: 10px; right: 10px; background: rgba(255,255,255,0.9);
+      padding: 10px 15px; border-radius: 10px; color:#023; font-size:14px;
+      box-shadow:0 0 10px rgba(0,0,0,0.2); max-width:180px;
+    }
+    .leaderboard h3 {margin:0 0 6px 0; font-size:16px; text-align:center;}
+    .leaderboard ol {margin:0; padding-left:20px; max-height:200px; overflow:auto;}
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div class="info">Dodirnite ekran za skok — XXX BANKA | Watermark: „Nijemci”</div>
+  <div class="leaderboard" id="leaderboard">
+    <h3>🏆 Top 10</h3>
+    <ol id="scoresList"></ol>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    let W = window.innerWidth, H = window.innerHeight;
+    canvas.width = W; canvas.height = H;
+
+    let frames = 0, score = 0, gameState = 'start';
+    const bird = {x: W*0.25, y: H/2, r: H*0.065, vy:0, gravity: H*0.0012, jump: -H*0.018};
+    const pipeWidth = W*0.12; const gapMin = H*0.25; const gapMax = H*0.35;
+    let pipes = [];
+
+    function random(min,max){return Math.floor(Math.random()*(max-min+1))+min}
+    function reset(){score=0;frames=0;gameState='start';bird.y=H/2;bird.vy=0;pipes=[];}
+
+    function spawnPipe(){
+      const gap=random(gapMin,gapMax);const top=random(H*0.1,H*0.7-gap);
+      pipes.push({x:W+pipeWidth,top, gap, passed:false});
+    }
+
+    // ===== background eco symbols =====
+    function drawHill(x,y,scale){
+      ctx.save(); ctx.translate(x,y);
+      ctx.beginPath(); ctx.arc(0,0,60*scale,Math.PI,0); ctx.fillStyle='rgba(20,90,40,0.12)'; ctx.fill();
+      ctx.beginPath(); ctx.arc(40*scale,0,45*scale,Math.PI,0); ctx.fillStyle='rgba(30,120,60,0.12)'; ctx.fill();
+      ctx.restore();
+    }
+    function drawWindTurbine(x,y,scale){
+      ctx.save(); ctx.translate(x,y);
+      ctx.globalAlpha = 0.12;
+      // tower
+      ctx.fillStyle='rgba(10,40,60,0.12)';
+      ctx.fillRect(-3*scale,-40*scale,6*scale,40*scale);
+      // rotor
+      ctx.translate(0,-40*scale);
+      for(let i=0;i<3;i++){
+        ctx.rotate((Math.PI*2/3));
+        ctx.beginPath();
+        ctx.moveTo(0,0);
+        ctx.lineTo(3*scale, -30*scale);
+        ctx.lineTo(-3*scale, -30*scale);
+        ctx.closePath();
+        ctx.fillStyle='rgba(10,40,60,0.12)';
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+    function drawSolarPanel(x,y,scale){
+      ctx.save(); ctx.translate(x,y);
+      ctx.globalAlpha = 0.14;
+      ctx.fillStyle='rgba(5,40,80,0.12)';
+      ctx.fillRect(-35*scale,-20*scale,70*scale,40*scale);
+      // grid
+      ctx.beginPath();
+      for(let i=-30;i<=30;i+=12){
+        ctx.moveTo(i*scale,-20*scale); ctx.lineTo(i*scale,20*scale);
+      }
+      for(let j=-16;j<=16;j+=12){
+        ctx.moveTo(-35*scale,j*scale); ctx.lineTo(35*scale,j*scale);
+      }
+      ctx.strokeStyle='rgba(255,255,255,0.06)';
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+    function drawSunCloud(x,y,scale){
+      ctx.save(); ctx.translate(x,y);
+      ctx.globalAlpha=0.12;
+      // sun
+      ctx.beginPath(); ctx.arc(-40*scale,-18*scale,18*scale,0,Math.PI*2); ctx.fillStyle='rgba(255,200,0,0.12)'; ctx.fill();
+      // cloud
+      ctx.beginPath(); ctx.arc(0,0,14*scale,Math.PI*0.5,Math.PI*1.5); ctx.arc(18*scale,-6*scale,12*scale,Math.PI*1,Math.PI*2); ctx.arc(36*scale,0,10*scale,Math.PI*1.25,Math.PI*2.25);
+      ctx.fillStyle='rgba(255,255,255,0.12)'; ctx.fill();
+      ctx.globalAlpha=1;
+      ctx.restore();
+    }
+
+    function drawEcoBackground(){
+      // tile icons across the canvas, with parallax-ish slow movement based on frames
+      const offset = (frames * 0.3) % (W*0.8);
+      for(let x = -200; x < W + 400; x += 220){
+        const bx = x - offset*0.2;
+        drawHill((bx+50)% (W+300) - 150, H*0.78, 1.1);
+      }
+      for(let x = 0; x < W+200; x += 280){
+        drawWindTurbine((x + (frames*0.4)%300), H*0.62, 0.9);
+      }
+      for(let x = 60; x < W; x += 300){
+        drawSolarPanel((x - (frames*0.25)%200), H*0.7, 0.85);
+      }
+      for(let x = 40; x < W; x += 420){
+        drawSunCloud((x + (frames*0.15)%220), H*0.18, 1.0);
+      }
+    }
+
+    // ===== watermark (tvoj original) =====
+    function drawWatermark(){
+      ctx.save();ctx.translate(W/2,H/2);ctx.rotate(-0.3);ctx.globalAlpha=0.06;
+      ctx.fillStyle='#000';ctx.font=`${H*0.25}px serif`;ctx.textAlign='center';ctx.fillText('Nijemci',0,0);
+      ctx.restore();ctx.globalAlpha=1;
+    }
+
+    // ===== banker image as skakac =====
+    const bankerImg = new Image();
+    bankerImg.src = 'banker.png'; // <-- stavi ovdje put/do/tvoje_slike ako se razlikuje
+    let bankerLoaded = false;
+    bankerImg.onload = ()=> bankerLoaded = true;
+
+    function drawBanker(){
+      // if image not loaded yet, draw fallback circle
+      const wobble = Math.min(Math.max(bird.vy/10,-0.6),0.6);
+      if(bankerLoaded){
+        ctx.save();
+        ctx.translate(bird.x, bird.y);
+        ctx.rotate(wobble);
+        // decide drawing size: maintain aspect ratio; show whole character, width ~ bird.r*2.8
+        const targetW = bird.r * 2.6;
+        const ar = bankerImg.width / bankerImg.height || 1;
+        const targetH = targetW / ar;
+        ctx.drawImage(bankerImg, -targetW/2, -targetH/2, targetW, targetH);
+        ctx.restore();
+      } else {
+        ctx.save();
+        ctx.translate(bird.x,bird.y);
+        ctx.rotate(wobble);
+        ctx.beginPath();ctx.arc(0,0,bird.r,0,Math.PI*2);ctx.fillStyle='#1b2a3a';ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    function drawPipe(p){
+      ctx.fillStyle='#1b6f8b';ctx.fillRect(p.x,0,pipeWidth,p.top);
+      const by=p.top+p.gap;ctx.fillRect(p.x,by,pipeWidth,H-by);
+      ctx.fillStyle='rgba(255,255,255,0.95)';ctx.font=`bold ${H*0.035}px sans-serif`;ctx.textAlign='center';
+      ctx.fillText('ProChamp',p.x+pipeWidth/2,Math.max(40,p.top-8));
+      ctx.fillText('ProChamp',p.x+pipeWidth/2,by+40);
+    }
+
+    function update(){
+      frames++;
+      if(gameState==='playing'){
+        if(frames%90===0)spawnPipe();
+        for(let i=pipes.length-1;i>=0;i--){
+          const p=pipes[i];p.x-=W*0.0045;
+          if(!p.passed&&p.x+pipeWidth<bird.x){p.passed=true;score++;updateLeaderboardDisplay();}
+          if(p.x+pipeWidth<0)pipes.splice(i,1);
+        }
+        bird.vy+=bird.gravity;bird.y+=bird.vy;
+        if(bird.y+bird.r>=H||bird.y-bird.r<=0)endGame();
+        for(const p of pipes){
+          if(bird.x+bird.r>p.x&&bird.x-bird.r<p.x+pipeWidth){
+            if(bird.y-bird.r<p.top||bird.y+bird.r>p.top+p.gap)endGame();
+          }
+        }
+      }
+    }
+
+    function endGame(){
+      if(gameState!=='over'){
+        saveScore(score);
+        updateLeaderboardDisplay();
+      }
+      gameState='over';
+    }
+
+    function render(){
+      ctx.clearRect(0,0,W,H);
+      // eco background first (subtle), then watermark
+      drawEcoBackground();
+      drawWatermark();
+
+      for(const p of pipes)drawPipe(p);
+      drawBanker();
+
+      ctx.fillStyle='#052a3a';ctx.font=`bold ${H*0.06}px sans-serif`;ctx.textAlign='left';ctx.fillText('Score: '+score,20,50);
+      if(gameState==='start'){
+        ctx.fillStyle='rgba(2,20,30,0.85)';ctx.font=`${H*0.04}px sans-serif`;ctx.textAlign='center';
+        ctx.fillText('Dodirnite ekran da započnete',W/2,H/2-20);
+      }
+      if(gameState==='over'){
+        ctx.fillStyle='rgba(0,0,0,0.5)';ctx.fillRect(W/2-150,H/2-60,300,120);
+        ctx.fillStyle='#fff';ctx.font=`${H*0.04}px sans-serif`;ctx.textAlign='center';
+        ctx.fillText('Kraj igre',W/2,H/2-10);
+        ctx.font=`${H*0.03}px sans-serif`;ctx.fillText('Rezultat: '+score,W/2,H/2+25);
+        ctx.fillText('Dodirnite ekran za novi pokušaj',W/2,H/2+55);
+      }
+    }
+
+    function flap(){
+      if(gameState==='start'||gameState==='over'){reset();gameState='playing';}
+      bird.vy=bird.jump;
+    }
+
+    canvas.addEventListener('touchstart',e=>{e.preventDefault();flap();},{passive:false});
+    canvas.addEventListener('mousedown',()=>flap());
+    window.addEventListener('resize',()=>{W=window.innerWidth;H=window.innerHeight;canvas.width=W;canvas.height=H; bird.r = H*0.065;});
+
+    // === LEADERBOARD FUNKCIJE ===
+    function getScores(){
+      return JSON.parse(localStorage.getItem('flappy_scores')||'[]');
+    }
+
+    function saveScore(newScore){
+      let scores=getScores();
+      scores.push(newScore);
+      scores.sort((a,b)=>b-a);
+      if(scores.length>10)scores=scores.slice(0,10);
+      localStorage.setItem('flappy_scores',JSON.stringify(scores));
+    }
+
+    function updateLeaderboardDisplay(){
+      const list=document.getElementById('scoresList');
+      const scores=getScores();
+      list.innerHTML=scores.map((s,i)=>`<li>${i+1}. ${s} pts</li>`).join('') || '<li>Nema rezultata</li>';
+    }
+
+    updateLeaderboardDisplay();
+    function loop(){update();render();requestAnimationFrame(loop);}loop();
+  </script>
+</body>
+</html>
